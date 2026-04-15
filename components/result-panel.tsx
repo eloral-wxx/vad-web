@@ -16,7 +16,9 @@ interface ResultPanelProps {
 export function ResultPanel({ result, isLoading, className }: ResultPanelProps) {
   const hasAnomaly = Boolean(result?.class && result.class !== "Normal")
   const primaryEvent = result?.results?.[0] ?? null
-  const timeRange = primaryEvent ? `${primaryEvent.start} – ${primaryEvent.end}` : "--"
+  const timeRange = primaryEvent
+    ? `${formatResultTime(primaryEvent.start)} – ${formatResultTime(primaryEvent.end)}`
+    : "--"
   const classNameValue = result?.class || "--"
 
   return (
@@ -53,10 +55,10 @@ export function ResultPanel({ result, isLoading, className }: ResultPanelProps) 
                 <div className="absolute left-0 top-4 h-10 w-1 rounded-r bg-primary" />
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                   <Badge variant="outline" className="text-xs">
-                    {event.class_name}
+                    {event.class_name || result.class}
                   </Badge>
                   <span className="text-xs font-mono text-secondary">
-                    [{event.start} - {event.end}]
+                    [{formatResultTime(event.start)} - {formatResultTime(event.end)}]
                   </span>
                 </div>
                 <p className="text-sm leading-relaxed text-foreground/90">{event.description}</p>
@@ -81,10 +83,10 @@ export function ResultPanel({ result, isLoading, className }: ResultPanelProps) 
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                   <Badge variant="outline" className="border-secondary/50 text-secondary">
                     <Tag className="mr-1 h-3 w-3" />
-                    {event.class_name}
+                    {event.class_name || result.class}
                   </Badge>
                   <span className="text-xs font-mono text-secondary">
-                    [{event.start} - {event.end}]
+                    [{formatResultTime(event.start)} - {formatResultTime(event.end)}]
                   </span>
                 </div>
                 <p>{event.reason}</p>
@@ -141,6 +143,17 @@ function InlineLoading({ label }: { label: string }) {
 
 function InlineEmpty({ label }: { label: string }) {
   return <p className="text-sm text-muted-foreground">{label}</p>
+}
+
+function formatResultTime(value: string | number): string {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const mins = Math.floor(value / 60)
+    const secs = Math.floor(value % 60)
+    const tenths = Math.floor((value % 1) * 10)
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}.${tenths}`
+  }
+
+  return String(value)
 }
 
 function SummaryCard({

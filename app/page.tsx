@@ -9,31 +9,9 @@ import { PromptPanel } from "@/components/prompt-panel"
 import { SettingsDrawer } from "@/components/settings-drawer"
 import { ResultPanel } from "@/components/result-panel"
 import { AnalyzeButton } from "@/components/analyze-button"
-import type { VideoFile, InferenceConfig, InferenceResponse, AnalysisStatus } from "@/lib/types"
+import type { DetectionResult, VideoFile, InferenceConfig, InferenceResponse, AnalysisStatus } from "@/lib/types"
 
-// Demo data for preview
-const DEMO_RESULT: InferenceResponse = {
-  class: "RoadAccidents",
-  predictions: Array.from({ length: 100 }, (_, i) => {
-    const x = i / 100
-    return Math.sin(x * Math.PI * 2) * 0.3 + 0.2 + Math.random() * 0.1 + (x > 0.4 && x < 0.6 ? 0.5 : 0)
-  }),
-  video_duration: 120,
-  results: [
-    {
-      start: "00:48",
-      end: "01:12",
-      description: "检测到车辆碰撞事故。一辆红色轿车与一辆白色SUV在十字路口发生侧面碰撞，造成交通堵塞。",
-      reason: "基于视觉特征分析：检测到突然的车辆运动变化、碰撞产生的碎片、以及车辆的非正常停止位置。候选类别包括：正常驾驶、危险驾驶、交通事故。最终判定为交通事故，因为存在明显的车辆接触和后续的车辆损坏迹象。",
-      class_name: "RoadAccidents"
-    }
-  ],
-  metadata: {
-    confidence: 0.94,
-    inference_time: 12.5,
-    tokens: 4523
-  }
-}
+const INFER_ENDPOINT = "http://127.0.0.1:8000/infer"
 
 export default function VideoAnomalyDetectionDemo() {
   // Video state - single source of truth
@@ -61,6 +39,21 @@ export default function VideoAnomalyDetectionDemo() {
     tokenCompression: 0.5
   })
 
+  const handleVideoSelect = useCallback((video: VideoFile | null) => {
+    setSelectedVideo((previousVideo) => {
+      if (previousVideo?.url && previousVideo.url !== video?.url) {
+        URL.revokeObjectURL(previousVideo.url)
+      }
+      return video
+    })
+
+    setResult(null)
+    setCurrentTime(0)
+    setDuration(0)
+    setStatus("idle")
+    setIsPlaying(false)
+  }, [])
+
   // Handle video time update from video player
   const handleVideoTimeUpdate = useCallback((time: number) => {
     if (!isSeekingFromTimeline.current) {
@@ -86,18 +79,41 @@ export default function VideoAnomalyDetectionDemo() {
 
   const handleAnalyze = useCallback(async () => {
     if (!selectedVideo) return
-    
+
     setStatus("analyzing")
     setIsPlaying(false)
-    
-    // Simulate API call with demo data
-    // In production, this would be a real API call
-    await new Promise(resolve => setTimeout(resolve, 3000))
-    
-    setResult(DEMO_RESULT)
-    setDuration(DEMO_RESULT.video_duration)
-    setStatus("complete")
-  }, [selectedVideo])
+    setCurrentTime(0)
+    setResult(null)
+
+    const formData = new FormData()
+    formData.append("file", selectedVideo.file)
+    formData.append("anomaly_prompt", anomalyPrompt)
+
+    try {
+      const response = await fetch(INFER_ENDPOINT, {
+        method: "POST",
+        body: formData,
+      })
+
+      const payload = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        throw new Error(
+          typeof payload === "object" && payload && "detail" in payload
+            ? String(payload.detail)
+            : `Inference request failed with status ${response.status}`
+        )
+      }
+
+      const normalizedResponse = normalizeInferenceResponse(payload)
+      setResult(normalizedResponse)
+      setDuration(normalizedResponse.video_duration)
+      setStatus("complete")
+    } catch (error) {
+      console.error("Video inference failed:", error)
+      setStatus("error")
+    }
+  }, [anomalyPrompt, selectedVideo])
 
   const handlePlayPause = useCallback(() => {
     setIsPlaying(prev => !prev)
@@ -156,7 +172,7 @@ export default function VideoAnomalyDetectionDemo() {
             <div className="shrink-0">
               {!selectedVideo ? (
                 <VideoUpload
-                  onVideoSelect={setSelectedVideo}
+                  onVideoSelect={handleVideoSelect}
                   selectedVideo={selectedVideo}
                 />
               ) : (
@@ -178,6 +194,7 @@ export default function VideoAnomalyDetectionDemo() {
             <div className="min-h-0 flex-1">
               <TimelineChart
                 predictions={result?.predictions || []}
+                timeAxis={result?.time_axis || []}
                 duration={effectiveDuration}
                 currentTime={currentTime}
                 onSeek={handleTimelineSeek}
@@ -202,11 +219,7 @@ export default function VideoAnomalyDetectionDemo() {
                 </div>
                 <button
                   onClick={() => {
-                    setSelectedVideo(null)
-                    setResult(null)
-                    setCurrentTime(0)
-                    setDuration(0)
-                    setStatus("idle")
+                    handleVideoSelect(null)
                   }}
                   className="text-xs text-muted-foreground hover:text-destructive transition-colors"
                 >
@@ -254,6 +267,97 @@ export default function VideoAnomalyDetectionDemo() {
       </div>
     </div>
   )
+}
+
+function normalizeInferenceResponse(payload: unknown): InferenceResponse {
+  const response = isObject(payload) ? payload : {}
+  const predictions = toNumberArray(response.predictions)
+  const videoDuration = toFiniteNumber(response.video_duration)
+  const fallbackTimeAxis = predictions.map((_, index) => {
+    if (predictions.length <= 1) return 0
+    return (index / (predictions.length - 1)) * videoDuration
+  })
+
+  return {
+    class: typeof response.class === "string" ? response.class : "",
+    predictions,
+    video_duration: videoDuration,
+    time_axis: normalizeTimeAxis(response.time_axis, fallbackTimeAxis, predictions.length),
+    results: normalizeResults(response.results, typeof response.class === "string" ? response.class : ""),
+    metadata: isObject(response.metadata)
+      ? {
+          confidence: toFiniteNumber(response.metadata.confidence),
+          inference_time: toFiniteNumber(response.metadata.inference_time),
+          tokens: toFiniteNumber(response.metadata.tokens),
+        }
+      : undefined,
+  }
+}
+
+function normalizeResults(results: unknown, fallbackClassName: string): DetectionResult[] {
+  if (!Array.isArray(results)) return []
+
+  return results
+    .filter(isObject)
+    .map((result) => ({
+      start: normalizeTimeValue(result.start),
+      end: normalizeTimeValue(result.end),
+      description: typeof result.description === "string" ? result.description : "",
+      reason: typeof result.reason === "string" ? result.reason : "",
+      class_name: typeof result.class_name === "string" ? result.class_name : fallbackClassName,
+    }))
+}
+
+function normalizeTimeAxis(timeAxis: unknown, fallbackTimeAxis: number[], expectedLength: number): number[] {
+  if (!Array.isArray(timeAxis)) {
+    return fallbackTimeAxis
+  }
+
+  const normalizedTimeAxis = timeAxis
+    .map((value) => toFiniteNumber(value))
+    .slice(0, expectedLength)
+
+  if (normalizedTimeAxis.length === expectedLength) {
+    return normalizedTimeAxis
+  }
+
+  return fallbackTimeAxis
+}
+
+function normalizeTimeValue(value: unknown): string | number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value
+  }
+
+  if (typeof value === "string") {
+    return value
+  }
+
+  return 0
+}
+
+function toNumberArray(value: unknown): number[] {
+  if (!Array.isArray(value)) return []
+  return value.map((entry) => toFiniteNumber(entry))
+}
+
+function toFiniteNumber(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) {
+      return parsed
+    }
+  }
+
+  return 0
+}
+
+function isObject(value: unknown): value is Record<string, any> {
+  return typeof value === "object" && value !== null
 }
 
 function formatDuration(seconds: number): string {

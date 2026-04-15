@@ -9,11 +9,11 @@ export interface InferenceConfig {
 }
 
 export interface DetectionResult {
-  start: string
-  end: string
+  start: string | number
+  end: string | number
   description: string
   reason: string
-  class_name: string
+  class_name?: string
 }
 
 export interface InferenceMetadata {
@@ -26,8 +26,9 @@ export interface InferenceResponse {
   class: string
   predictions: number[]
   video_duration: number
+  time_axis: number[]
   results: DetectionResult[]
-  metadata: InferenceMetadata
+  metadata?: InferenceMetadata
 }
 
 export interface VideoFile {

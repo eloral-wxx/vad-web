@@ -1,13 +1,12 @@
 "use client"
 
-import { useMemo, useRef, useCallback, useState } from "react"
+import { useMemo, useRef, useCallback, useState, useEffect } from "react"
 import {
   AreaChart,
   Area,
   XAxis,
   YAxis,
   ReferenceLine,
-  ReferenceArea,
   ResponsiveContainer,
   Tooltip,
 } from "recharts"
@@ -16,6 +15,7 @@ import { cn } from "@/lib/utils"
 
 interface TimelineChartProps {
   predictions: number[]
+  timeAxis?: number[]
   duration: number
   currentTime: number
   onSeek: (time: number) => void
@@ -25,6 +25,7 @@ interface TimelineChartProps {
 
 export function TimelineChart({
   predictions,
+  timeAxis = [],
   duration,
   currentTime,
   onSeek,
@@ -33,50 +34,88 @@ export function TimelineChart({
 }: TimelineChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [playheadTime, setPlayheadTime] = useState(0)
+
+  const anomalyRegions = useMemo(() => {
+    return results
+      .map((result) => {
+        const start = parseTimeString(result.start)
+        const end = parseTimeString(result.end)
+        return {
+          start: Math.min(start, end),
+          end: Math.max(start, end),
+          className: result.class_name,
+        }
+      })
+      .filter((region) => Number.isFinite(region.start) && Number.isFinite(region.end) && region.end >= region.start)
+  }, [results])
 
   const data = useMemo(() => {
     if (predictions.length === 0) return []
-    
-    const timeStep = duration / predictions.length
-    return predictions.map((score, index) => ({
-      time: index * timeStep,
-      score: score,
-      formattedTime: formatTime(index * timeStep),
-      index
-    }))
-  }, [predictions, duration])
 
-  const anomalyRegions = useMemo(() => {
-    return results.map(result => {
-      const start = parseTimeString(result.start)
-      const end = parseTimeString(result.end)
-      return { start, end, className: result.class_name }
+    return predictions.map((score, index) => {
+      const time = getTimeAxisValue(timeAxis, index, duration, predictions.length)
+      const isAnomaly = anomalyRegions.some((region) => time >= region.start && time <= region.end)
+
+      return {
+        time,
+        score,
+        normalScore: isAnomaly ? null : score,
+        anomalyScore: isAnomaly ? score : null,
+        anomalyMask: isAnomaly ? 1 : null,
+        formattedTime: formatTime(time),
+        index,
+      }
     })
-  }, [results])
+  }, [predictions, timeAxis, duration, anomalyRegions])
+
+  const chartRange = useMemo(() => {
+    if (data.length === 0) {
+      return { min: 0, max: duration > 0 ? duration : 1 }
+    }
+
+    const min = Number.isFinite(data[0]?.time) ? data[0].time : 0
+    const lastTime = data[data.length - 1]?.time
+    const maxCandidate = Number.isFinite(lastTime) ? lastTime : duration
+    const max = maxCandidate > min ? maxCandidate : min + 1
+
+    return { min, max }
+  }, [data, duration])
+
+  const playheadPercent = useMemo(() => {
+    const span = chartRange.max - chartRange.min
+    if (span <= 0) return 0
+    const clamped = Math.max(chartRange.min, Math.min(playheadTime, chartRange.max))
+    return ((clamped - chartRange.min) / span) * 100
+  }, [chartRange, playheadTime])
+
+  useEffect(() => {
+    const clampedCurrentTime = Math.max(chartRange.min, Math.min(currentTime, chartRange.max))
+    setPlayheadTime(clampedCurrentTime)
+  }, [currentTime, chartRange])
 
   // Get time from mouse position
   const getTimeFromPosition = useCallback((clientX: number) => {
     const container = containerRef.current
-    if (!container || duration <= 0) return 0
+    if (!container) return 0
 
     const rect = container.getBoundingClientRect()
-    const padding = 50 // Account for chart padding
-    const effectiveWidth = rect.width - padding
-    const relativeX = clientX - rect.left - (padding / 2)
-    const ratio = Math.max(0, Math.min(1, relativeX / effectiveWidth))
-    return ratio * duration
-  }, [duration])
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+    return chartRange.min + ratio * (chartRange.max - chartRange.min)
+  }, [chartRange])
 
   // Handle mouse/touch interactions on the timeline
   const handleInteractionStart = useCallback((clientX: number) => {
     setIsDragging(true)
     const time = getTimeFromPosition(clientX)
+    setPlayheadTime(time)
     onSeek(time)
   }, [getTimeFromPosition, onSeek])
 
   const handleInteractionMove = useCallback((clientX: number) => {
     if (!isDragging) return
     const time = getTimeFromPosition(clientX)
+    setPlayheadTime(time)
     onSeek(time)
   }, [isDragging, getTimeFromPosition, onSeek])
 
@@ -125,16 +164,17 @@ export function TimelineChart({
   const handleChartClick = useCallback((data: { activePayload?: Array<{ payload: { time: number } }> }) => {
     if (data?.activePayload?.[0]?.payload) {
       const time = data.activePayload[0].payload.time
+      setPlayheadTime(time)
       onSeek(time)
     }
   }, [onSeek])
 
-  // Calculate playhead position percentage
-  const playheadPercent = duration > 0 ? (currentTime / duration) * 100 : 0
-
   // Get current score for display
-  const currentIndex = duration > 0 && predictions.length > 0
-    ? Math.min(Math.floor((currentTime / duration) * predictions.length), predictions.length - 1)
+  const currentIndex = predictions.length > 0
+    ? Math.min(
+        Math.max(findClosestTimeIndex(data, playheadTime), 0),
+        predictions.length - 1
+      )
     : 0
   const currentScore = predictions[currentIndex] ?? 0
 
@@ -197,34 +237,30 @@ export function TimelineChart({
       >
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart 
+            key={`${data.length}-${chartRange.min}-${chartRange.max}`}
             data={data}
             onClick={handleChartClick}
             margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
           >
             <defs>
-              <linearGradient id="scoreGradient" x1="0" y1="0" x2="0" y2="1">
+              <linearGradient id="scoreGradientNormal" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="oklch(0.75 0.18 195)" stopOpacity={0.8} />
                 <stop offset="100%" stopColor="oklch(0.75 0.18 195)" stopOpacity={0.1} />
               </linearGradient>
-              <linearGradient id="anomalyGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="oklch(0.65 0.25 25)" stopOpacity={0.5} />
-                <stop offset="100%" stopColor="oklch(0.65 0.25 25)" stopOpacity={0.15} />
+              <linearGradient id="scoreGradientMuted" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="oklch(0.75 0.18 195)" stopOpacity={0.28} />
+                <stop offset="100%" stopColor="oklch(0.75 0.18 195)" stopOpacity={0.04} />
+              </linearGradient>
+              <linearGradient id="anomalyOverlayGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="oklch(0.65 0.25 25)" stopOpacity={0.28} />
+                <stop offset="100%" stopColor="oklch(0.65 0.25 25)" stopOpacity={0.2} />
               </linearGradient>
             </defs>
             
-            {/* Anomaly highlight regions */}
-            {anomalyRegions.map((region, index) => (
-              <ReferenceArea
-                key={index}
-                x1={region.start}
-                x2={region.end}
-                fill="url(#anomalyGradient)"
-                fillOpacity={1}
-              />
-            ))}
-            
             <XAxis 
+              type="number"
               dataKey="time" 
+              domain={[chartRange.min, chartRange.max]}
               axisLine={false}
               tickLine={false}
               tick={{ fill: 'oklch(0.65 0.02 250)', fontSize: 10 }}
@@ -260,21 +296,43 @@ export function TimelineChart({
                 return null
               }}
             />
-            
+
             <Area
               type="monotone"
-              dataKey="score"
+              dataKey="normalScore"
               stroke="oklch(0.75 0.18 195)"
               strokeWidth={2}
-              fill="url(#scoreGradient)"
+              fill="url(#scoreGradientNormal)"
+              connectNulls={false}
+              isAnimationActive={false}
+            />
+
+            <Area
+              type="monotone"
+              dataKey="anomalyScore"
+              stroke="oklch(0.75 0.18 195)"
+              strokeOpacity={0.35}
+              strokeWidth={2}
+              fill="url(#scoreGradientMuted)"
+              connectNulls={false}
+              isAnimationActive={false}
+            />
+
+            <Area
+              type="stepAfter"
+              dataKey="anomalyMask"
+              stroke="none"
+              fill="url(#anomalyOverlayGradient)"
+              connectNulls={false}
               isAnimationActive={false}
             />
             
             {/* Playhead - vertical reference line */}
             <ReferenceLine 
-              x={currentTime} 
+              x={playheadTime}
               stroke="oklch(0.75 0.15 85)" 
               strokeWidth={2}
+              ifOverflow="extendDomain"
             />
           </AreaChart>
         </ResponsiveContainer>
@@ -283,7 +341,7 @@ export function TimelineChart({
         <div 
           className="absolute top-0 h-full pointer-events-none z-10"
           style={{ 
-            left: `calc(30px + ${playheadPercent}% * (100% - 40px) / 100)`,
+            left: `${playheadPercent}%`,
             transform: 'translateX(-50%)'
           }}
         >
@@ -309,8 +367,8 @@ export function TimelineChart({
               key={index}
               className="absolute top-0 h-full bg-destructive/40 rounded-full"
               style={{
-                left: `${(region.start / duration) * 100}%`,
-                width: `${((region.end - region.start) / duration) * 100}%`
+                left: `${duration > 0 ? (region.start / duration) * 100 : 0}%`,
+                width: `${duration > 0 ? ((region.end - region.start) / duration) * 100 : 0}%`
               }}
             />
           ))}
@@ -358,10 +416,44 @@ function formatTime(seconds: number): string {
   return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}.${ms}`
 }
 
-function parseTimeString(timeStr: string): number {
+function parseTimeString(timeStr: string | number): number {
+  if (typeof timeStr === "number") {
+    return Number.isFinite(timeStr) ? timeStr : 0
+  }
+
   const parts = timeStr.split(":")
   if (parts.length === 2) {
     return parseInt(parts[0]) * 60 + parseFloat(parts[1])
   }
   return parseFloat(timeStr)
+}
+
+function getTimeAxisValue(timeAxis: number[], index: number, duration: number, predictionCount: number): number {
+  const axisValue = timeAxis[index]
+  if (Number.isFinite(axisValue)) {
+    return axisValue
+  }
+
+  if (predictionCount <= 1) {
+    return 0
+  }
+
+  return (index / (predictionCount - 1)) * duration
+}
+
+function findClosestTimeIndex(data: Array<{ time: number }>, targetTime: number): number {
+  if (data.length === 0) return 0
+
+  let closestIndex = 0
+  let minDistance = Math.abs(data[0].time - targetTime)
+
+  for (let index = 1; index < data.length; index += 1) {
+    const distance = Math.abs(data[index].time - targetTime)
+    if (distance < minDistance) {
+      minDistance = distance
+      closestIndex = index
+    }
+  }
+
+  return closestIndex
 }
