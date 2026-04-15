@@ -11,7 +11,7 @@ import { ResultPanel } from "@/components/result-panel"
 import { AnalyzeButton } from "@/components/analyze-button"
 import type { DetectionResult, VideoFile, InferenceConfig, InferenceResponse, AnalysisStatus } from "@/lib/types"
 
-const INFER_ENDPOINT = "http://127.0.0.1:8000/infer"
+const INFER_ENDPOINT = "https://vad-api.loca.lt/infer"
 
 
 export default function VideoAnomalyDetectionDemo() {
