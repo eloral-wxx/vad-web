@@ -13,6 +13,7 @@ import type { DetectionResult, VideoFile, InferenceConfig, InferenceResponse, An
 
 const INFER_ENDPOINT = "http://127.0.0.1:8000/infer"
 
+
 export default function VideoAnomalyDetectionDemo() {
   // Video state - single source of truth
   const [selectedVideo, setSelectedVideo] = useState<VideoFile | null>(null)
