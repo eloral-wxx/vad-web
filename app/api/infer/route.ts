@@ -4,7 +4,7 @@ export async function POST(req: Request) {
   
       console.log("🔥 Sending request to backend...");
   
-      const res = await fetch("http://39.106.114.117:8000/infer", {
+      const res = await fetch("http://39.106.114.117:18000/infer", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
