@@ -11,7 +11,7 @@ import { ResultPanel } from "@/components/result-panel"
 import { AnalyzeButton } from "@/components/analyze-button"
 import type { DetectionResult, VideoFile, InferenceConfig, InferenceResponse, AnalysisStatus } from "@/lib/types"
 
- const INFER_ENDPOINT = "http://39.106.114.117:8000/infer" // 阿里云服务器部署后端接口用的
+const INFER_ENDPOINT = "http://39.106.114.117:8000/infer" // 阿里云服务器部署后端接口用的
 //const INFER_ENDPOINT = "http://127.0.0.1:8000/infer" // 本地测试用的
 
 export default function VideoAnomalyDetectionDemo() {
