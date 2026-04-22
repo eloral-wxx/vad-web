@@ -1,6 +1,6 @@
 export const runtime = "nodejs"
 
-const BACKEND_INFER_URL = "https://api.vad-web.com/infer"
+const BACKEND_INFER_URL = "http://39.106.114.117:8000"
 
 export async function POST(request: Request): Promise<Response> {
   try {
