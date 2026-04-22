@@ -1,6 +1,6 @@
 export const runtime = "nodejs"
 
-const BACKEND_INFER_URL = "http://39.106.114.117:8000"
+const BACKEND_INFER_URL = "http://39.106.114.117:8000/infer"
 
 export async function POST(request: Request): Promise<Response> {
   try {
