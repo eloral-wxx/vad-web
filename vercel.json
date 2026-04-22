@@ -1,0 +1,58 @@
+{
+    "version": 2,
+    "buildCommand": "cd frontend/web-v4 && npm install && npm run build",
+    "outputDirectory": "frontend/web-v4/.next",
+    "rewrites": [
+      {
+        "source": "/api/(.*)",
+        "destination": "/api/$1"
+      }
+    ],
+    "headers": [
+      {
+        "source": "/api/(.*)",
+        "headers": [
+          {
+            "key": "Access-Control-Allow-Origin",
+            "value": "https://www.vad-web.com"
+          },
+          {
+            "key": "Access-Control-Allow-Methods",
+            "value": "GET, POST, PUT, DELETE, OPTIONS"
+          },
+          {
+            "key": "Access-Control-Allow-Headers",
+            "value": "Content-Type, Authorization, X-Requested-With"
+          },
+          {
+            "key": "Access-Control-Allow-Credentials",
+            "value": "true"
+          }
+        ]
+      },
+      {
+        "source": "/(.*)",
+        "headers": [
+          {
+            "key": "X-Content-Type-Options",
+            "value": "nosniff"
+          },
+          {
+            "key": "X-Frame-Options",
+            "value": "DENY"
+          },
+          {
+            "key": "X-XSS-Protection",
+            "value": "1; mode=block"
+          }
+        ]
+      }
+    ],
+    "redirects": [
+      {
+        "source": "/",
+        "destination": "/",
+        "permanent": true
+      }
+    ]
+  }
