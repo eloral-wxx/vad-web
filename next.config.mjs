@@ -1,4 +1,6 @@
 /** @type {import('next').NextConfig} */
+const backendBaseUrl = (process.env.BACKEND_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "")
+
 const nextConfig = {
   devIndicators: false,
   typescript: {
@@ -6,6 +8,14 @@ const nextConfig = {
   },
   images: {
     unoptimized: true,
+  },
+  async rewrites() {
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${backendBaseUrl}/:path*`,
+      },
+    ]
   },
 }
 

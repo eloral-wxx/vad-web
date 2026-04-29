@@ -23,7 +23,10 @@ export interface InferenceMetadata {
 }
 
 export interface InferenceResponse {
+  label: string
   class: string
+  description: string
+  reason: string
   predictions: number[]
   video_duration: number
   time_axis: number[]
@@ -32,9 +35,23 @@ export interface InferenceResponse {
 }
 
 export interface VideoFile {
-  file: File
+  file?: File
   name: string
   url: string
+  sourceType: "file" | "url"
+}
+
+export interface DemoPresetSummary {
+  id: string
+  title: string
+  description: string
+}
+
+export interface DemoPresetDetail extends DemoPresetSummary {
+  video_name: string
+  video_url: string
+  anomaly_prompt: string
+  result: InferenceResponse
 }
 
 export type AnalysisStatus = 'idle' | 'uploading' | 'analyzing' | 'complete' | 'error'

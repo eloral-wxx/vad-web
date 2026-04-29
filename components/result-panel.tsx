@@ -14,12 +14,14 @@ interface ResultPanelProps {
 }
 
 export function ResultPanel({ result, isLoading, className }: ResultPanelProps) {
-  const hasAnomaly = Boolean(result?.class && result.class !== "Normal")
-  const primaryEvent = result?.results?.[0] ?? null
-  const timeRange = primaryEvent
-    ? `${formatResultTime(primaryEvent.start)} – ${formatResultTime(primaryEvent.end)}`
-    : "--"
-  const classNameValue = result?.class || "--"
+  const classNameValue = result?.label || result?.class || "--"
+  const hasAnomaly = Boolean(classNameValue && !isNormalLabel(classNameValue) && classNameValue !== "--")
+  const normalizedResults = getDisplayResults(result)
+  const primaryEvent = normalizedResults[0] ?? null
+  const timeRange =
+    primaryEvent && hasTimeRange(primaryEvent.start, primaryEvent.end)
+      ? `${formatResultTime(primaryEvent.start)} – ${formatResultTime(primaryEvent.end)}`
+      : "--"
 
   return (
     <div className={cn("grid h-full min-h-0 grid-rows-[2fr_5fr_5fr] gap-4", className)}>
@@ -45,9 +47,10 @@ export function ResultPanel({ result, isLoading, className }: ResultPanelProps) 
       <SectionCard title="事件描述" icon={<FileText className="h-4 w-4 text-primary" />}>
         {isLoading ? (
           <SectionState label="AI 正在生成事件描述..." />
-        ) : result?.results?.length ? (
+        ) : normalizedResults.length ? (
+          // 关键修改：description 区域始终渲染，normal/abnormal 都会显示；字段为空时显示默认文案。
           <div className="space-y-3">
-            {result.results.map((event, index) => (
+            {normalizedResults.map((event, index) => (
               <div
                 key={index}
                 className="relative rounded-lg border border-border/50 bg-muted/20 p-4 pl-5"
@@ -55,27 +58,32 @@ export function ResultPanel({ result, isLoading, className }: ResultPanelProps) 
                 <div className="absolute left-0 top-4 h-10 w-1 rounded-r bg-primary" />
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                   <Badge variant="outline" className="text-xs">
-                    {event.class_name || result.class}
+                    {event.class_name || classNameValue}
                   </Badge>
-                  <span className="text-xs font-mono text-secondary">
-                    [{formatResultTime(event.start)} - {formatResultTime(event.end)}]
-                  </span>
+                  {hasTimeRange(event.start, event.end) ? (
+                    <span className="text-xs font-mono text-secondary">
+                      [{formatResultTime(event.start)} - {formatResultTime(event.end)}]
+                    </span>
+                  ) : null}
                 </div>
-                <p className="text-sm leading-relaxed text-foreground/90">{event.description}</p>
+                <p className="text-sm leading-relaxed text-foreground/90">
+                  {event.description || "No description available"}
+                </p>
               </div>
             ))}
           </div>
         ) : (
-          <SectionState label="分析完成后将显示事件描述。" isEmpty />
+          <SectionState label="No description available" isEmpty />
         )}
       </SectionCard>
 
       <SectionCard title="模型推理" icon={<Brain className="h-4 w-4 text-secondary" />}>
         {isLoading ? (
           <SectionState label="AI 正在整理模型推理..." />
-        ) : result?.results?.some((event) => event.reason) ? (
+        ) : normalizedResults.length ? (
+          // 关键修改：reason 区域始终渲染，normal/abnormal 都会显示；字段为空时显示默认文案。
           <div className="space-y-3">
-            {result.results.map((event, index) => (
+            {normalizedResults.map((event, index) => (
               <div
                 key={index}
                 className="rounded-lg bg-muted/30 p-3 text-sm leading-relaxed text-muted-foreground"
@@ -83,22 +91,50 @@ export function ResultPanel({ result, isLoading, className }: ResultPanelProps) 
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                   <Badge variant="outline" className="border-secondary/50 text-secondary">
                     <Tag className="mr-1 h-3 w-3" />
-                    {event.class_name || result.class}
+                    {event.class_name || classNameValue}
                   </Badge>
-                  <span className="text-xs font-mono text-secondary">
-                    [{formatResultTime(event.start)} - {formatResultTime(event.end)}]
-                  </span>
+                  {hasTimeRange(event.start, event.end) ? (
+                    <span className="text-xs font-mono text-secondary">
+                      [{formatResultTime(event.start)} - {formatResultTime(event.end)}]
+                    </span>
+                  ) : null}
                 </div>
-                <p>{event.reason}</p>
+                <p>{event.reason || "No reason available"}</p>
               </div>
             ))}
           </div>
         ) : (
-          <SectionState label="分析完成后将显示模型推理。" isEmpty />
+          <SectionState label="No reason available" isEmpty />
         )}
       </SectionCard>
     </div>
   )
+}
+
+function getDisplayResults(result: InferenceResponse | null) {
+  if (!result) {
+    return []
+  }
+
+  if (result.results.length > 0) {
+    return result.results.map((event) => ({
+      ...event,
+      description: event.description || result.description || "No description available",
+      reason: event.reason || result.reason || "No reason available",
+      class_name: event.class_name || result.label || result.class || "--",
+    }))
+  }
+
+  // 关键修改：即使没有结构化事件数组，也用顶层 description/reason 渲染一条默认结果，避免 normal 视频空白。
+  return [
+    {
+      start: "",
+      end: "",
+      description: result.description || "No description available",
+      reason: result.reason || "No reason available",
+      class_name: result.label || result.class || "--",
+    },
+  ]
 }
 
 function SectionCard({
@@ -154,6 +190,15 @@ function formatResultTime(value: string | number): string {
   }
 
   return String(value)
+}
+
+function hasTimeRange(start: string | number, end: string | number): boolean {
+  return Boolean(String(start ?? "").trim() && String(end ?? "").trim())
+}
+
+function isNormalLabel(value: string): boolean {
+  const normalized = value.trim().toLowerCase()
+  return normalized === "normal" || normalized === "none"
 }
 
 function SummaryCard({

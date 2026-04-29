@@ -252,8 +252,8 @@ export function TimelineChart({
                 <stop offset="100%" stopColor="oklch(0.75 0.18 195)" stopOpacity={0.04} />
               </linearGradient>
               <linearGradient id="anomalyOverlayGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="oklch(0.65 0.25 25)" stopOpacity={0.28} />
-                <stop offset="100%" stopColor="oklch(0.65 0.25 25)" stopOpacity={0.2} />
+                <stop offset="0%" stopColor="oklch(0.69 0.23 24)" stopOpacity={0.44} />
+                <stop offset="100%" stopColor="oklch(0.69 0.23 24)" stopOpacity={0.3} />
               </linearGradient>
             </defs>
             
