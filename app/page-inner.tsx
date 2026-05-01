@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react"
 import { useSearchParams } from "next/navigation"
-import { Brain, Activity } from "lucide-react"
+import { Brain, Activity, PlayCircle } from "lucide-react"
 import { VideoUpload } from "@/components/video-upload"
 import { VideoPlayer } from "@/components/video-player"
 import { TimelineChart } from "@/components/timeline-chart"
@@ -10,6 +10,7 @@ import { PromptPanel } from "@/components/prompt-panel"
 import { SettingsDrawer } from "@/components/settings-drawer"
 import { ResultPanel } from "@/components/result-panel"
 import { AnalyzeButton } from "@/components/analyze-button"
+import { Button } from "@/components/ui/button"
 import type { DemoPresetDetail, DetectionResult, VideoFile, InferenceConfig, InferenceResponse, AnalysisStatus } from "@/lib/types"
 
 const INFER_ENDPOINT = "/api/infer" // 前端反向代理
@@ -20,6 +21,7 @@ const DEMO_PRESET_ENDPOINT = "/api/demo-presets"//原本是http://127.0.0.1:8000
 export default function VideoAnomalyDetectionDemo() {
   const searchParams = useSearchParams()
   const demoId = searchParams.get("demo")?.trim() ?? ""
+  const demoLoadRequestRef = useRef(0)
   // Video state - single source of truth
   const [selectedVideo, setSelectedVideo] = useState<VideoFile | null>(null)
   const [currentTime, setCurrentTime] = useState(0)
@@ -156,67 +158,67 @@ export default function VideoAnomalyDetectionDemo() {
     setIsPlaying(prev => !prev)
   }, [])
 
+  const loadDemoPreset = useCallback(async (presetId: string) => {
+    const requestId = ++demoLoadRequestRef.current
+
+    setStatus("analyzing")
+    setIsPlaying(false)
+    setCurrentTime(0)
+    setResult(null)
+    setErrorMessage("")
+
+    try {
+      const response = await fetch(`${DEMO_PRESET_ENDPOINT}/${encodeURIComponent(presetId)}`)
+      const payload = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        throw new Error(
+          typeof payload === "object" && payload && "detail" in payload
+            ? String(payload.detail)
+            : `Demo preset request failed with status ${response.status}`
+        )
+      }
+
+      const demoPreset = normalizeDemoPresetDetail(payload)
+      const normalizedResponse = demoPreset.result
+
+      if (demoLoadRequestRef.current !== requestId) {
+        return
+      }
+
+      setSelectedVideo({
+        name: demoPreset.video_name,
+        url: demoPreset.video_url,
+        sourceType: "url",
+      })
+      setAnomalyPrompt(demoPreset.anomaly_prompt)
+      setResult(normalizedResponse)
+      setDuration(normalizedResponse.video_duration)
+      setStatus("complete")
+      setActiveDemoId(demoPreset.id)
+    } catch (error) {
+      if (demoLoadRequestRef.current !== requestId) {
+        return
+      }
+
+      console.error("Demo preset load failed:", error)
+      setErrorMessage(error instanceof Error ? error.message : String(error))
+      setStatus("error")
+    }
+  }, [])
+
+  const handleStartDemo = useCallback(() => {
+    void loadDemoPreset("building-explosion")
+  }, [loadDemoPreset])
+
   useEffect(() => {
     if (!demoId) {
       setActiveDemoId("")
       return
     }
 
-    let cancelled = false
-
-    async function loadDemoPreset() {
-      setStatus("analyzing")
-      setIsPlaying(false)
-      setCurrentTime(0)
-      setResult(null)
-      setErrorMessage("")
-
-      try {
-        const response = await fetch(`${DEMO_PRESET_ENDPOINT}/${encodeURIComponent(demoId)}`)
-        const payload = await response.json().catch(() => null)
-
-        if (!response.ok) {
-          throw new Error(
-            typeof payload === "object" && payload && "detail" in payload
-              ? String(payload.detail)
-              : `Demo preset request failed with status ${response.status}`
-          )
-        }
-
-        const demoPreset = normalizeDemoPresetDetail(payload)
-        const normalizedResponse = demoPreset.result
-
-        if (cancelled) {
-          return
-        }
-
-        setSelectedVideo({
-          name: demoPreset.video_name,
-          url: demoPreset.video_url,
-          sourceType: "url",
-        })
-        setAnomalyPrompt(demoPreset.anomaly_prompt)
-        setResult(normalizedResponse)
-        setDuration(normalizedResponse.video_duration)
-        setStatus("complete")
-        setActiveDemoId(demoPreset.id)
-      } catch (error) {
-        if (cancelled) {
-          return
-        }
-
-        console.error("Demo preset load failed:", error)
-        setErrorMessage(error instanceof Error ? error.message : String(error))
-        setStatus("error")
-      }
-    }
-
-    void loadDemoPreset()
-
-    return () => {
-      cancelled = true
-    }
-  }, [demoId])
+    void loadDemoPreset(demoId)
+  }, [demoId, loadDemoPreset])
 
   // Update duration from result if available
   useEffect(() => {
@@ -262,6 +264,16 @@ export default function VideoAnomalyDetectionDemo() {
               <Activity className="w-4 h-4 text-primary animate-pulse" />
               <span className="text-xs text-muted-foreground">系统就绪</span>
             </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleStartDemo}
+              disabled={isAnalyzing}
+              className="border-primary/40 bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+            >
+              <PlayCircle className="h-4 w-4" />
+              一键启动
+            </Button>
             <SettingsDrawer config={config} onConfigChange={setConfig} />
           </div>
         </header>
